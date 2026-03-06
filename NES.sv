@@ -602,6 +602,10 @@ wire fds_btn = joyA[8] | joyB[8];
 reg [1:0] nes_ce;
 
 wire raw_serial = |status[52:51];
+// HUD is only valid when sourced from the normal effective parallel joypad bits.
+// In raw_serial mode gameplay reads external serial controller data directly,
+// so HUD is intentionally disabled to avoid showing incorrect inputs.
+wire [1:0] hud_mode_effective = raw_serial ? 2'd0 : hud_mode;
 
 // Extend SNAC zapper high signal to be closer to original NES
 wire extend_serial_d4 = status[52:51] == 2'b10;
@@ -1217,7 +1221,7 @@ hud_controller hud_controller
 	.y(scanline),
 	.p1_frame(p1_frame),
 	.p2_frame(p2_frame),
-	.hud_mode(hud_mode),
+	.hud_mode(hud_mode_effective),
 	.hud_position(hud_position),
 	.hud_scale(hud_scale),
 	.hud_active(hud_active),
