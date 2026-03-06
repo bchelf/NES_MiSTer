@@ -64,11 +64,13 @@ module hud_controller
 		logic lit_px;
 		logic draw_px;
 
-		scale_mul = hud_scale ? 2 : 1;
+		count = (hud_mode == 2'd2) ? 2 : (hud_mode == 2'd1) ? 1 : 0;
+		// Two 2x controller sprites cannot fit in 256 active pixels.
+		// Keep P1+P2 mode readable by forcing 1x in dual-controller mode.
+		scale_mul = (hud_scale && (count == 1)) ? 2 : 1;
 		sprite_w = HUD_W * scale_mul;
 		sprite_h = HUD_H * scale_mul;
 		gap = 8 * scale_mul;
-		count = (hud_mode == 2'd2) ? 2 : (hud_mode == 2'd1) ? 1 : 0;
 		total_w = (count == 2) ? (sprite_w * 2 + gap) : sprite_w;
 
 		case (hud_position)
