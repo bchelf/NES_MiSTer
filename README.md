@@ -16,6 +16,14 @@ This is an FPGA implementation of the NES/Famicom based on [FPGANES](https://git
  * Supports expansion audio from mappers including VRC6 & 7, MMC5, Namco 163 and Sunsoft 5b
  * Supports many popular mappers including VRC1-7, MMC0-5, and many more (see below)
  * Supports large games such as Legend of Link and Rockman Minus Infinity
+ * Graphical controller input HUD (Off / P1 / P1+P2)
+
+## Input HUD Architecture (P0)
+- Controller tap: HUD input reads from effective controller bytes used to load the NES $4016/$4017 shift pipeline, then passes through `rtl/input_normalize.sv` into normalized bits (`A,B,Select,Start,Up,Down,Left,Right`).
+- Frame stability: controller display state is latched once per frame from a `frame_tick` generated on the rising edge of `nes_vblank`, producing `p1_frame` and `p2_frame`.
+- Renderer: `rtl/hud_controller.sv` draws one or two controller HUDs using ROM-backed assets from `rtl/hud_assets.sv` (128x64 base + per-button masks) with OSD-configured mode, position, and scale.
+- Video overlay: HUD pixels are blended at the final core RGB stage before `video_mixer`, so the HUD appears above gameplay on both HDMI and analog outputs.
+- TAS-forward path: the HUD consumes normalized effective bits and does not read raw HPS joystick values, so a future TAS playback layer can override effective bits without redesigning the HUD path.
 
 ## Installation
 Copy the NES_\*.rbf file to the directory or subdirectory of `/media/fat/`. Create a `games/NES/` directory on the root of the SD card (`/media/fat/games/NES/`), and place NES roms (\*.nes) inside this NES directory. The ROMs must have an iNES or NES2.0 header, which most already do. NES2.0 headers are preferred for the best accuracy. To have an NES or FDS game ROM load automatically upon starting the core, place it in the NES directory named as boot1.rom or boot2.rom, respectively.
@@ -79,4 +87,3 @@ The Miracle Piano is a MIDI keyboard compatible with the Miracle Piano Education
 |**268**|413|**547**|---|---|---|---|---|---|---|---|---|---|---|---|---|
 
 Key: **Supported+Save state**, Supported, ~~Not Supported~~. Mappers that are not existent or not useful are blank.
-
