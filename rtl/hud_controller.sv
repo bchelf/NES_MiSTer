@@ -12,8 +12,6 @@ module hud_controller
 	output logic [23:0] hud_pixel
 );
 
-	localparam int ASSET_W = 128;
-	localparam int ASSET_H = 64;
 	localparam int HUD_W = 64;
 	localparam int HUD_H = 32;
 	localparam int SCR_W = 256;
@@ -119,11 +117,11 @@ module hud_controller
 				// Render at 64x32 base size by sampling the 128x64 asset.
 				// At 2x (single HUD), map 1:1 back to the source asset.
 				if (scale_mul == 2) begin
-					local_x = ctrl_x;
-					local_y = rel_y;
+					local_x = ctrl_x[6:0];
+					local_y = rel_y[5:0];
 				end else begin
-					local_x = ctrl_x << 1;
-					local_y = rel_y << 1;
+					local_x = {ctrl_x[5:0], 1'b0};
+					local_y = {rel_y[4:0], 1'b0};
 				end
 				active_buttons = (ctrl_sel == 0) ? p1_frame : p2_frame;
 
