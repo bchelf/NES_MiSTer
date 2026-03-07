@@ -16,7 +16,9 @@ module hud_controller
 	localparam int HUD_H = 32;
 	localparam int SCR_W = 256;
 	localparam int SCR_H = 240;
-	localparam int MARGIN = 8;
+	localparam int SIDE_MARGIN = 8;
+	localparam int TOP_MARGIN = 20;
+	localparam int BOTTOM_MARGIN = 8;
 
 	logic base_px;
 	logic mask_a;
@@ -75,20 +77,20 @@ module hud_controller
 
 		case (hud_position)
 			2'd0: begin
-				x0 = MARGIN;
-				y0 = MARGIN;
+				x0 = SIDE_MARGIN;
+				y0 = TOP_MARGIN;
 			end
 			2'd1: begin
-				x0 = SCR_W - total_w - MARGIN;
-				y0 = MARGIN;
+				x0 = SCR_W - total_w - SIDE_MARGIN;
+				y0 = TOP_MARGIN;
 			end
 			2'd2: begin
-				x0 = MARGIN;
-				y0 = SCR_H - sprite_h - MARGIN;
+				x0 = SIDE_MARGIN;
+				y0 = SCR_H - sprite_h - BOTTOM_MARGIN;
 			end
 			default: begin
-				x0 = SCR_W - total_w - MARGIN;
-				y0 = SCR_H - sprite_h - MARGIN;
+				x0 = SCR_W - total_w - SIDE_MARGIN;
+				y0 = SCR_H - sprite_h - BOTTOM_MARGIN;
 			end
 		endcase
 
