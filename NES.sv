@@ -587,6 +587,9 @@ wire [7:0] p1_effective_bits;
 wire [7:0] p2_effective_bits;
 reg  [7:0] p1_frame;
 reg  [7:0] p2_frame;
+wire [31:0] hud_sampled_frame_idx;
+wire [7:0] hud_sampled_p1;
+wire [7:0] hud_sampled_p2;
 
 input_normalize input_normalize
 (
@@ -996,6 +999,18 @@ always_ff @(posedge clk) begin
 		end
 	end
 end
+
+movie_sampler movie_sampler
+(
+	.clk(clk),
+	.reset(reset_nes),
+	.frame_tick(frame_tick),
+	.p1_frame(p1_frame),
+	.p2_frame(p2_frame),
+	.sampled_frame_idx(hud_sampled_frame_idx),
+	.sampled_p1(hud_sampled_p1),
+	.sampled_p2(hud_sampled_p2)
+);
 
 wire [24:0] cpu_addr;
 wire [21:0] ppu_addr;
