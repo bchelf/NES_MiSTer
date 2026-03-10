@@ -206,9 +206,9 @@ video_freak video_freak
 reg [1:0] video_status;
 reg new_vmode = 0;
 always @(posedge clk) begin
-    if (video_status != status[24:23]) begin
-        video_status <= status[24:23];
-        new_vmode <= ~new_vmode;
+	if (video_status != effective_sys_type) begin
+		video_status <= effective_sys_type;
+		new_vmode <= ~new_vmode;
     end
 end
 
@@ -224,7 +224,7 @@ parameter CONF_STR = {
 	"FS,NESFDSNSF;",
 	"H1F2,BIN,Load FDS BIOS;",
 	"-;",
-	"ONO,System Type,NTSC,PAL,Dendy;",
+	"ONO,System Type,Auto,NTSC,PAL,Dendy;",
 	"-;",
 	"C,Cheats;",
 	"H2OK,Cheats Enabled,On,Off;",
@@ -299,7 +299,8 @@ parameter CONF_STR = {
 	"Save to state 3,",
 	"Restore state 3,",
 	"Save to state 4,",
-	"Restore state 4;",
+	"Restore state 4,",
+	"No NES 2.0 header found\nDefaulting to NTSC;",
 	"V,v",`BUILD_DATE
 };
 
@@ -311,7 +312,6 @@ wire [1:0] buttons;
 wire [127:0] status;
 
 wire arm_reset = status[0];
-wire pal_video = |status[24:23];
 wire [1:0] hide_overscan = status[68:67];
 wire [3:0] palette2_osd = status[49:47];
 wire [1:0] hud_mode = status[71:70];
@@ -322,6 +322,14 @@ wire fds_auto_eject = ~status[16];
 wire fds_fast = ~status[17];
 wire ext_audio = ~status[30];
 wire int_audio = ~status[31];
+
+// Auto detect console region
+wire [1:0] auto_sys_type = (mapper_flags[37:36] == 2'd1) ? 2'd1 :  // PAL
+                           (mapper_flags[37:36] == 2'd3) ? 2'd2 :  // Dendy
+                           2'd0;                                    // NTSC (0 and multi-region)
+wire [1:0] effective_sys_type = (status[24:23] == 2'd0) ? auto_sys_type
+                                                         : (status[24:23] - 2'd1);
+wire pal_video = |effective_sys_type;
 
 // Figure out file types
 reg type_bios, type_fds, type_gg, type_nsf, type_nes, type_palette, is_bios, downloading;
@@ -470,8 +478,8 @@ hps_io #(.CONF_STR(CONF_STR)) hps_io
 
 assign joyA = joyA_unmod[23] ? 23'b0 : joyA_unmod;
 
-wire       info_req = diskside_info || ss_info_req;
-wire [7:0] info     = ss_info_req ? ss_info : {1'b0,diskside} + 3'd1;
+wire       info_req = diskside_info || ss_info_req || auto_info_req;
+wire [7:0] info     = ss_info_req ? ss_info : auto_info_req ? 8'd18 : {1'b0,diskside} + 3'd1;
 
 wire clock_locked;
 wire clk85;
@@ -514,7 +522,7 @@ always @(posedge CLK_50M) begin : cfg_block
 	reg pald = 0, pald2 = 0;
 	reg [2:0] state = 0;
 
-	pald  <= status[23];
+	pald  <= (effective_sys_type == 2'd1);
 	pald2 <= pald;
 
 	cfg_write <= 0;
@@ -818,7 +826,14 @@ GameLoader loader
 	.rom_loaded       ( rom_loaded        )
 );
 
-always @(posedge clk) if (loader_done) mapper_flags <= loader_flags;
+reg auto_info_req;
+
+always @(posedge clk) begin
+	if (loader_done) mapper_flags <= loader_flags;
+	auto_info_req <= 0;
+	if (loader_done && rom_loaded && type_nes && !loader_flags[35] && status[24:23] == 2'd0)
+		auto_info_req <= 1;
+end
 
 reg led_blink;
 always @(posedge clk) begin : blink_block
@@ -839,10 +854,10 @@ wire reset_nes =
 	bk_loading     ||
 	bk_loading_req ||
 	hold_reset     ||
-	(old_sys_type != status[24:23]);
+	(old_sys_type != effective_sys_type);
 
 reg [1:0] old_sys_type;
-always @(posedge clk) old_sys_type <= status[24:23];
+always @(posedge clk) old_sys_type <= effective_sys_type;
 
 wire [17:0] bram_addr;
 wire [7:0] bram_din;
@@ -894,7 +909,7 @@ NES nes (
 	.pausecore       (pausecore),
 	.corepaused      (corepaused),
 	.debug_dots	     (status[69]),
-	.sys_type        (status[24:23]),
+	.sys_type        (effective_sys_type),
 	.nes_div         (nes_ce),
 	.mapper_flags    (downloading ? 64'd0 : mapper_flags),
 	.gg              (status[20]),
@@ -1249,7 +1264,7 @@ video video
 	.clk(clk),
 	.reset(reset_nes),
 	.cnt(nes_ce_video),
-	.sys_type(status[24:23]),
+	.sys_type(effective_sys_type),
 	.nes_hsync(nes_hsync),
 	.nes_hblank(nes_hblank),
 	.nes_vsync(nes_vsync),
@@ -1587,7 +1602,8 @@ wire [3:0] prg_nvram = (is_nes20 ? ines[10][7:4] : 4'h0);
 wire       piano = is_nes20 && (ines[15][5:0] == 6'h19);
 wire has_saves = ines[6][1];
 
-assign mapper_flags[63:36] = 'd0;
+assign mapper_flags[63:38] = 'd0;
+assign mapper_flags[37:36] = is_nes20 ? ines[12][1:0] : 2'b00;
 assign mapper_flags[35]    = is_nes20;
 assign mapper_flags[34:31] = prg_nvram; //NES 2.0 Save RAM shift size (64 << size)
 assign mapper_flags[30]    = piano;
