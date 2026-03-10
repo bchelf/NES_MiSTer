@@ -260,6 +260,9 @@ parameter CONF_STR = {
 	"P2oJK,SNAC,Off,Controllers,Zapper,3D Glasses;",
 	"P2o02,Peripheral,None,Zapper(Mouse),Zapper(Joy1),Zapper(Joy2),Vaus,Vaus(A-Trigger),Powerpad,Family Trainer;",
 	"P2oL,Famicom Keyboard,No,Yes;",
+	"P2O[71:70],Input HUD,Off,P1,P1+P2;",
+	"P2O[73:72],HUD Position,TL,TR,BL,BR;",
+	"P2o74,HUD Scale,1x,2x;",
 	"P2-;",
 	"P2OL,Zapper Trigger,Mouse,Joystick;",
 	"P2OM,Crosshairs,On,Off;",
@@ -311,6 +314,9 @@ wire arm_reset = status[0];
 wire pal_video = |status[24:23];
 wire [1:0] hide_overscan = status[68:67];
 wire [3:0] palette2_osd = status[49:47];
+wire [1:0] hud_mode = status[71:70];
+wire [1:0] hud_position = status[73:72];
+wire       hud_scale = status[74];
 wire joy_swap = status[9] ^ (raw_serial || piano); // Controller on port 2 for Miracle Piano/SNAC
 wire fds_auto_eject = ~status[16];
 wire fds_fast = ~status[17];
@@ -571,6 +577,24 @@ wire [7:0] nes_joy_A = { joyA[0], joyA[1], joyA[2], joyA[3], joyA[7], joyA[6], j
 wire [7:0] nes_joy_B = { joyB[0], joyB[1], joyB[2], joyB[3], joyB[7], joyB[6], joyB[5], ~paddle_atr & joyB[4] };
 wire [7:0] nes_joy_C = { joyC[0], joyC[1], joyC[2], joyC[3], joyC[7], joyC[6], joyC[5], ~paddle_atr & joyC[4] };
 wire [7:0] nes_joy_D = { joyD[0], joyD[1], joyD[2], joyD[3], joyD[7], joyD[6], joyD[5], ~paddle_atr & joyD[4] };
+wire [23:0] joypad_bits_load_p1 = piano ? {15'h0000, uart_data[8:0]}
+	: {status[10] ? {8'h08, nes_joy_C} : 16'hFFFF, joy_swap ? nes_joy_B : nes_joy_A};
+wire [23:0] joypad_bits_load_p2 = {status[10] ? {8'h04, nes_joy_D} : 16'hFFFF, joy_swap ? nes_joy_A : nes_joy_B};
+
+wire [7:0] p1_effective_raw = joypad_bits_load_p1[7:0];
+wire [7:0] p2_effective_raw = joypad_bits_load_p2[7:0];
+wire [7:0] p1_effective_bits;
+wire [7:0] p2_effective_bits;
+reg  [7:0] p1_frame;
+reg  [7:0] p2_frame;
+
+input_normalize input_normalize
+(
+	.p1_raw(p1_effective_raw),
+	.p2_raw(p2_effective_raw),
+	.p1_norm(p1_effective_bits),
+	.p2_norm(p2_effective_bits)
+);
 
 wire mic_button = joyA[9] | joyB[9];
 wire fds_btn = joyA[8] | joyB[8];
@@ -578,6 +602,10 @@ wire fds_btn = joyA[8] | joyB[8];
 reg [1:0] nes_ce;
 
 wire raw_serial = |status[52:51];
+// HUD is only valid when sourced from the normal effective parallel joypad bits.
+// In raw_serial mode gameplay reads external serial controller data directly,
+// so HUD is intentionally disabled to avoid showing incorrect inputs.
+wire [1:0] hud_mode_effective = raw_serial ? 2'd0 : hud_mode;
 
 // Extend SNAC zapper high signal to be closer to original NES
 wire extend_serial_d4 = status[52:51] == 2'b10;
@@ -728,9 +756,8 @@ always @(posedge clk) begin
 		last_joypad_clock <= 0;
 	end else begin
 		if (joypad_out[0]) begin
-			joypad_bits  <= piano ? {15'h0000, uart_data[8:0]}
-				: {status[10] ? {8'h08, nes_joy_C} : 16'hFFFF, joy_swap ? nes_joy_B : nes_joy_A};
-			joypad_bits2 <= {status[10] ? {8'h04, nes_joy_D} : 16'hFFFF, joy_swap ? nes_joy_A : nes_joy_B};
+			joypad_bits  <= joypad_bits_load_p1;
+			joypad_bits2 <= joypad_bits_load_p2;
 			joypad_d4 <= paddle_en ? paddle_nes : {4'b1111, powerpad[7], powerpad[11], powerpad[2], powerpad[3]};
 			joypad_d3 <= {powerpad[6], powerpad[10], powerpad[9], powerpad[5], powerpad[8], powerpad[4], powerpad[0], powerpad[1]};
 		end
@@ -853,6 +880,8 @@ always_ff @(posedge clk) begin
 end
 
 wire nes_hblank, nes_hsync, nes_vsync, nes_vblank;
+reg  nes_vblank_prev = 0;
+wire frame_tick = nes_vblank & ~nes_vblank_prev;
 
 NES nes (
 	.clk             (clk),
@@ -953,6 +982,20 @@ NES nes (
 	.SAVE_out_be             (ss_be),
 	.SAVE_out_done           (ss_ack)            // should be one cycle high when write is done or read value is valid
 );
+
+always_ff @(posedge clk) begin
+	if (reset_nes) begin
+		nes_vblank_prev <= 1'b0;
+		p1_frame <= 8'h00;
+		p2_frame <= 8'h00;
+	end else begin
+		nes_vblank_prev <= nes_vblank;
+		if (frame_tick) begin
+			p1_frame <= p1_effective_bits;
+			p2_frame <= p2_effective_bits;
+		end
+	end
+end
 
 wire [24:0] cpu_addr;
 wire [21:0] ppu_addr;
@@ -1165,8 +1208,25 @@ wire hold_reset;
 wire ce_pix;
 wire HSync,VSync,HBlank,VBlank;
 wire [7:0] R,G,B;
+wire [7:0] R_core,G_core,B_core;
+wire       hud_active;
+wire [23:0] hud_pixel;
 
 wire [1:0] nes_ce_video = corepaused ? videopause_ce : nes_ce;
+
+hud_controller hud_controller
+(
+	.clk(clk),
+	.x(cycle),
+	.y(scanline),
+	.p1_frame(p1_frame),
+	.p2_frame(p2_frame),
+	.hud_mode(hud_mode_effective),
+	.hud_position(hud_position),
+	.hud_scale(hud_scale),
+	.hud_active(hud_active),
+	.hud_pixel(hud_pixel)
+);
 
 video video
 (
@@ -1189,8 +1249,15 @@ video video
 	.load_color_index(pal_index),
 	.emphasis(emphasis),
 	.reticle(~status[22] ? reticle : 2'b00),
-	.pal_video(pal_video)
+	.pal_video(pal_video),
+	.R(R_core),
+	.G(G_core),
+	.B(B_core)
 );
+
+assign R = hud_active ? hud_pixel[23:16] : R_core;
+assign G = hud_active ? hud_pixel[15:8]  : G_core;
+assign B = hud_active ? hud_pixel[7:0]   : B_core;
 
 video_mixer #(260, 0, 1) video_mixer
 (
