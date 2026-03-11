@@ -770,7 +770,14 @@ always @(posedge clk) begin
 	end
 end
 
+`ifdef VERILATOR
+// Simulation harness doesn't drive cheat code uploads. Bypassing the
+// combinational genie overlay avoids a Verilator UNOPTFLAT feedback loop in
+// the CPU DI path without changing FPGA behavior.
+assign from_data_bus = external_data_bus;
+`else
 assign from_data_bus = genie_ovr ? genie_data : external_data_bus;
+`endif
 
 reg [7:0] external_data_bus;
 
