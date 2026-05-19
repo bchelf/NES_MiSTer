@@ -600,16 +600,59 @@ wire [7:0] nes_joy_B_raw = { joyB[0], joyB[1], joyB[2], joyB[3], joyB[7], joyB[6
 wire [7:0] nes_joy_C_raw = { joyC[0], joyC[1], joyC[2], joyC[3], joyC[7], joyC[6], joyC[5], ~paddle_atr & joyC[4] };
 wire [7:0] nes_joy_D_raw = { joyD[0], joyD[1], joyD[2], joyD[3], joyD[7], joyD[6], joyD[5], ~paddle_atr & joyD[4] };
 
-// When neutral_lr_ud is set, zero out Left+Right and Up+Down on simultaneous press.
-wire [7:0] nes_joy_A_lr = (neutral_lr_ud && nes_joy_A_raw[7] && nes_joy_A_raw[6]) ? {2'b00, nes_joy_A_raw[5:0]} : nes_joy_A_raw;
-wire [7:0] nes_joy_B_lr = (neutral_lr_ud && nes_joy_B_raw[7] && nes_joy_B_raw[6]) ? {2'b00, nes_joy_B_raw[5:0]} : nes_joy_B_raw;
-wire [7:0] nes_joy_C_lr = (neutral_lr_ud && nes_joy_C_raw[7] && nes_joy_C_raw[6]) ? {2'b00, nes_joy_C_raw[5:0]} : nes_joy_C_raw;
-wire [7:0] nes_joy_D_lr = (neutral_lr_ud && nes_joy_D_raw[7] && nes_joy_D_raw[6]) ? {2'b00, nes_joy_D_raw[5:0]} : nes_joy_D_raw;
+// Latched L+R / U+D conflict per controller. Once both opposite directions
+// are seen high in the same cycle, the pair stays NOP'd until both raw bits
+// return to 0. This survives the upstream input layer subsequently dropping
+// one of the two bits (e.g. HAT-switch / SOCD cleaning, OS-level priority),
+// so the "later" button can't take over while the first is still held.
+reg lr_conflict_A = 1'b0, lr_conflict_B = 1'b0, lr_conflict_C = 1'b0, lr_conflict_D = 1'b0;
+reg ud_conflict_A = 1'b0, ud_conflict_B = 1'b0, ud_conflict_C = 1'b0, ud_conflict_D = 1'b0;
 
-wire [7:0] nes_joy_A = (neutral_lr_ud && nes_joy_A_lr[5] && nes_joy_A_lr[4]) ? {nes_joy_A_lr[7:6], 2'b00, nes_joy_A_lr[3:0]} : nes_joy_A_lr;
-wire [7:0] nes_joy_B = (neutral_lr_ud && nes_joy_B_lr[5] && nes_joy_B_lr[4]) ? {nes_joy_B_lr[7:6], 2'b00, nes_joy_B_lr[3:0]} : nes_joy_B_lr;
-wire [7:0] nes_joy_C = (neutral_lr_ud && nes_joy_C_lr[5] && nes_joy_C_lr[4]) ? {nes_joy_C_lr[7:6], 2'b00, nes_joy_C_lr[3:0]} : nes_joy_C_lr;
-wire [7:0] nes_joy_D = (neutral_lr_ud && nes_joy_D_lr[5] && nes_joy_D_lr[4]) ? {nes_joy_D_lr[7:6], 2'b00, nes_joy_D_lr[3:0]} : nes_joy_D_lr;
+always @(posedge clk) begin
+	// Player A
+	if      ( nes_joy_A_raw[7] &  nes_joy_A_raw[6]) lr_conflict_A <= 1'b1;
+	else if (~nes_joy_A_raw[7] & ~nes_joy_A_raw[6]) lr_conflict_A <= 1'b0;
+	if      ( nes_joy_A_raw[5] &  nes_joy_A_raw[4]) ud_conflict_A <= 1'b1;
+	else if (~nes_joy_A_raw[5] & ~nes_joy_A_raw[4]) ud_conflict_A <= 1'b0;
+	// Player B
+	if      ( nes_joy_B_raw[7] &  nes_joy_B_raw[6]) lr_conflict_B <= 1'b1;
+	else if (~nes_joy_B_raw[7] & ~nes_joy_B_raw[6]) lr_conflict_B <= 1'b0;
+	if      ( nes_joy_B_raw[5] &  nes_joy_B_raw[4]) ud_conflict_B <= 1'b1;
+	else if (~nes_joy_B_raw[5] & ~nes_joy_B_raw[4]) ud_conflict_B <= 1'b0;
+	// Player C
+	if      ( nes_joy_C_raw[7] &  nes_joy_C_raw[6]) lr_conflict_C <= 1'b1;
+	else if (~nes_joy_C_raw[7] & ~nes_joy_C_raw[6]) lr_conflict_C <= 1'b0;
+	if      ( nes_joy_C_raw[5] &  nes_joy_C_raw[4]) ud_conflict_C <= 1'b1;
+	else if (~nes_joy_C_raw[5] & ~nes_joy_C_raw[4]) ud_conflict_C <= 1'b0;
+	// Player D
+	if      ( nes_joy_D_raw[7] &  nes_joy_D_raw[6]) lr_conflict_D <= 1'b1;
+	else if (~nes_joy_D_raw[7] & ~nes_joy_D_raw[6]) lr_conflict_D <= 1'b0;
+	if      ( nes_joy_D_raw[5] &  nes_joy_D_raw[4]) ud_conflict_D <= 1'b1;
+	else if (~nes_joy_D_raw[5] & ~nes_joy_D_raw[4]) ud_conflict_D <= 1'b0;
+end
+
+// Apply the filter when neutral_lr_ud is enabled. Force opposite-direction
+// pairs to zero whenever raw shows both, OR while the latch holds.
+wire [7:0] nes_joy_A = neutral_lr_ud
+	? { (lr_conflict_A | (nes_joy_A_raw[7] & nes_joy_A_raw[6])) ? 2'b00 : nes_joy_A_raw[7:6],
+	    (ud_conflict_A | (nes_joy_A_raw[5] & nes_joy_A_raw[4])) ? 2'b00 : nes_joy_A_raw[5:4],
+	    nes_joy_A_raw[3:0] }
+	: nes_joy_A_raw;
+wire [7:0] nes_joy_B = neutral_lr_ud
+	? { (lr_conflict_B | (nes_joy_B_raw[7] & nes_joy_B_raw[6])) ? 2'b00 : nes_joy_B_raw[7:6],
+	    (ud_conflict_B | (nes_joy_B_raw[5] & nes_joy_B_raw[4])) ? 2'b00 : nes_joy_B_raw[5:4],
+	    nes_joy_B_raw[3:0] }
+	: nes_joy_B_raw;
+wire [7:0] nes_joy_C = neutral_lr_ud
+	? { (lr_conflict_C | (nes_joy_C_raw[7] & nes_joy_C_raw[6])) ? 2'b00 : nes_joy_C_raw[7:6],
+	    (ud_conflict_C | (nes_joy_C_raw[5] & nes_joy_C_raw[4])) ? 2'b00 : nes_joy_C_raw[5:4],
+	    nes_joy_C_raw[3:0] }
+	: nes_joy_C_raw;
+wire [7:0] nes_joy_D = neutral_lr_ud
+	? { (lr_conflict_D | (nes_joy_D_raw[7] & nes_joy_D_raw[6])) ? 2'b00 : nes_joy_D_raw[7:6],
+	    (ud_conflict_D | (nes_joy_D_raw[5] & nes_joy_D_raw[4])) ? 2'b00 : nes_joy_D_raw[5:4],
+	    nes_joy_D_raw[3:0] }
+	: nes_joy_D_raw;
 wire [23:0] joypad_bits_load_p1 = piano ? {15'h0000, uart_data[8:0]}
 	: {status[10] ? {8'h08, nes_joy_C} : 16'hFFFF, joy_swap ? nes_joy_B : nes_joy_A};
 wire [23:0] joypad_bits_load_p2 = {status[10] ? {8'h04, nes_joy_D} : 16'hFFFF, joy_swap ? nes_joy_A : nes_joy_B};
