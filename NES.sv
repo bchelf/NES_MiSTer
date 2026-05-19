@@ -256,12 +256,13 @@ parameter CONF_STR = {
 	"P2,Input Options;",
 	"P2-;",
 	"P2O9,Swap Joysticks,No,Yes;",
+	"P2O[55],Disallow L+R/U+D,On,Off;",
 	"P2OA,Multitap,Disabled,Enabled;",
 	"P2oJK,SNAC,Off,Controllers,Zapper,3D Glasses;",
 	"P2o02,Peripheral,None,Zapper(Mouse),Zapper(Joy1),Zapper(Joy2),Vaus,Vaus(A-Trigger),Powerpad,Family Trainer;",
 	"P2oL,Famicom Keyboard,No,Yes;",
-	"P2O[71:70],Input HUD,Off,P1,P1+P2;",
-	"P2O[73:72],HUD Position,TL,TR,BL,BR;",
+	"P2O[71:70],Input HUD,P1,Off,P1+P2;",
+	"P2O[73:72],HUD Position,BR,TL,TR,BL;",
 	"P2o74,HUD Scale,1x,2x;",
 	"P2-;",
 	"P2OL,Zapper Trigger,Mouse,Joystick;",
@@ -314,9 +315,19 @@ wire [127:0] status;
 wire arm_reset = status[0];
 wire [1:0] hide_overscan = status[68:67];
 wire [3:0] palette2_osd = status[49:47];
-wire [1:0] hud_mode = status[71:70];
-wire [1:0] hud_position = status[73:72];
-wire       hud_scale = status[74];
+// CONF_STR reordered so option index 0 (the menu default) gives P1 + BR.
+// Remap raw status bits back to the canonical encoding used by hud_controller
+// (mode: 0=Off, 1=P1, 2=P1+P2; position: 0=TL, 1=TR, 2=BL, 3=BR).
+wire [1:0] hud_mode_sel     = status[71:70];
+wire [1:0] hud_position_sel = status[73:72];
+wire [1:0] hud_mode     = (hud_mode_sel     == 2'd0) ? 2'd1 :
+                          (hud_mode_sel     == 2'd1) ? 2'd0 : 2'd2;
+wire [1:0] hud_position = (hud_position_sel == 2'd0) ? 2'd3 :
+                          (hud_position_sel == 2'd1) ? 2'd0 :
+                          (hud_position_sel == 2'd2) ? 2'd1 : 2'd2;
+wire       hud_scale    = status[74];
+// status[55]=0 (menu "On") enables filtering L+R and U+D simultaneous presses.
+wire       neutral_lr_ud = ~status[55];
 wire joy_swap = status[9] ^ (raw_serial || piano); // Controller on port 2 for Miracle Piano/SNAC
 wire fds_auto_eject = ~status[16];
 wire fds_fast = ~status[17];
@@ -440,7 +451,7 @@ hps_io #(.CONF_STR(CONF_STR)) hps_io
 
 	.status(status),
 	.status_menumask({(rom_loaded && mapper_has_savestate), en216p, ~status[50], ~raw_serial, (palette2_osd != 3'd5), ~gg_avail, bios_loaded, ~bk_ena}),
-	.status_in({status[63:47],ss_slot,status[44:0]}),
+	.status_in({status[127:47],ss_slot,status[44:0]}),
 	.status_set(statusUpdate),
 	.info_req(info_req),
 	.info(info),
@@ -581,10 +592,22 @@ assign famtr[1] = (~joypad_out[2] & powerpad[2]) | (~joypad_out[1] & powerpad[6]
 assign famtr[2] = (~joypad_out[2] & powerpad[1]) | (~joypad_out[1] & powerpad[5]) | (~joypad_out[0] & powerpad[9] );
 assign famtr[3] = (~joypad_out[2] & powerpad[0]) | (~joypad_out[1] & powerpad[4]) | (~joypad_out[0] & powerpad[8] );
 
-wire [7:0] nes_joy_A = { joyA[0], joyA[1], joyA[2], joyA[3], joyA[7], joyA[6], joyA[5], ~paddle_atr & joyA[4] };
-wire [7:0] nes_joy_B = { joyB[0], joyB[1], joyB[2], joyB[3], joyB[7], joyB[6], joyB[5], ~paddle_atr & joyB[4] };
-wire [7:0] nes_joy_C = { joyC[0], joyC[1], joyC[2], joyC[3], joyC[7], joyC[6], joyC[5], ~paddle_atr & joyC[4] };
-wire [7:0] nes_joy_D = { joyD[0], joyD[1], joyD[2], joyD[3], joyD[7], joyD[6], joyD[5], ~paddle_atr & joyD[4] };
+// Raw NES pad order: {Right, Left, Down, Up, Start, Select, B, A}
+wire [7:0] nes_joy_A_raw = { joyA[0], joyA[1], joyA[2], joyA[3], joyA[7], joyA[6], joyA[5], ~paddle_atr & joyA[4] };
+wire [7:0] nes_joy_B_raw = { joyB[0], joyB[1], joyB[2], joyB[3], joyB[7], joyB[6], joyB[5], ~paddle_atr & joyB[4] };
+wire [7:0] nes_joy_C_raw = { joyC[0], joyC[1], joyC[2], joyC[3], joyC[7], joyC[6], joyC[5], ~paddle_atr & joyC[4] };
+wire [7:0] nes_joy_D_raw = { joyD[0], joyD[1], joyD[2], joyD[3], joyD[7], joyD[6], joyD[5], ~paddle_atr & joyD[4] };
+
+// When neutral_lr_ud is set, zero out Left+Right and Up+Down on simultaneous press.
+wire [7:0] nes_joy_A_lr = (neutral_lr_ud && nes_joy_A_raw[7] && nes_joy_A_raw[6]) ? {2'b00, nes_joy_A_raw[5:0]} : nes_joy_A_raw;
+wire [7:0] nes_joy_B_lr = (neutral_lr_ud && nes_joy_B_raw[7] && nes_joy_B_raw[6]) ? {2'b00, nes_joy_B_raw[5:0]} : nes_joy_B_raw;
+wire [7:0] nes_joy_C_lr = (neutral_lr_ud && nes_joy_C_raw[7] && nes_joy_C_raw[6]) ? {2'b00, nes_joy_C_raw[5:0]} : nes_joy_C_raw;
+wire [7:0] nes_joy_D_lr = (neutral_lr_ud && nes_joy_D_raw[7] && nes_joy_D_raw[6]) ? {2'b00, nes_joy_D_raw[5:0]} : nes_joy_D_raw;
+
+wire [7:0] nes_joy_A = (neutral_lr_ud && nes_joy_A_lr[5] && nes_joy_A_lr[4]) ? {nes_joy_A_lr[7:6], 2'b00, nes_joy_A_lr[3:0]} : nes_joy_A_lr;
+wire [7:0] nes_joy_B = (neutral_lr_ud && nes_joy_B_lr[5] && nes_joy_B_lr[4]) ? {nes_joy_B_lr[7:6], 2'b00, nes_joy_B_lr[3:0]} : nes_joy_B_lr;
+wire [7:0] nes_joy_C = (neutral_lr_ud && nes_joy_C_lr[5] && nes_joy_C_lr[4]) ? {nes_joy_C_lr[7:6], 2'b00, nes_joy_C_lr[3:0]} : nes_joy_C_lr;
+wire [7:0] nes_joy_D = (neutral_lr_ud && nes_joy_D_lr[5] && nes_joy_D_lr[4]) ? {nes_joy_D_lr[7:6], 2'b00, nes_joy_D_lr[3:0]} : nes_joy_D_lr;
 wire [23:0] joypad_bits_load_p1 = piano ? {15'h0000, uart_data[8:0]}
 	: {status[10] ? {8'h08, nes_joy_C} : 16'hFFFF, joy_swap ? nes_joy_B : nes_joy_A};
 wire [23:0] joypad_bits_load_p2 = {status[10] ? {8'h04, nes_joy_D} : 16'hFFFF, joy_swap ? nes_joy_A : nes_joy_B};
