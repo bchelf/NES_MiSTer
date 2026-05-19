@@ -256,7 +256,7 @@ parameter CONF_STR = {
 	"P2,Input Options;",
 	"P2-;",
 	"P2O9,Swap Joysticks,No,Yes;",
-	"P2O[55],Disallow L+R/U+D,On,Off;",
+	"P2O[75],Disallow L+R/U+D,On,Off;",
 	"P2OA,Multitap,Disabled,Enabled;",
 	"P2oJK,SNAC,Off,Controllers,Zapper,3D Glasses;",
 	"P2o02,Peripheral,None,Zapper(Mouse),Zapper(Joy1),Zapper(Joy2),Vaus,Vaus(A-Trigger),Powerpad,Family Trainer;",
@@ -326,8 +326,10 @@ wire [1:0] hud_position = (hud_position_sel == 2'd0) ? 2'd3 :
                           (hud_position_sel == 2'd1) ? 2'd0 :
                           (hud_position_sel == 2'd2) ? 2'd1 : 2'd2;
 wire       hud_scale    = status[74];
-// status[55]=0 (menu "On") enables filtering L+R and U+D simultaneous presses.
-wire       neutral_lr_ud = ~status[55];
+// status[75]=0 (menu "On") enables filtering L+R and U+D simultaneous presses.
+// Using a fresh, previously unused status bit so existing NES.CFG files load
+// as 0 (the desired default) instead of inheriting a stale value.
+wire       neutral_lr_ud = ~status[75];
 wire joy_swap = status[9] ^ (raw_serial || piano); // Controller on port 2 for Miracle Piano/SNAC
 wire fds_auto_eject = ~status[16];
 wire fds_fast = ~status[17];
