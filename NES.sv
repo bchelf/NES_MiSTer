@@ -604,26 +604,31 @@ wire [7:0] nes_joy_D_raw = { joyD[0], joyD[1], joyD[2], joyD[3], joyD[7], joyD[6
 // high simultaneously, force the pair to 0; the instant either bit drops,
 // the still-held bit passes through normally. Independently applied to
 // L+R (bits 7:6) and U+D (bits 5:4) on each controller.
-wire [7:0] nes_joy_A = neutral_lr_ud
-	? { (nes_joy_A_raw[7] & nes_joy_A_raw[6]) ? 2'b00 : nes_joy_A_raw[7:6],
-	    (nes_joy_A_raw[5] & nes_joy_A_raw[4]) ? 2'b00 : nes_joy_A_raw[5:4],
-	    nes_joy_A_raw[3:0] }
-	: nes_joy_A_raw;
-wire [7:0] nes_joy_B = neutral_lr_ud
-	? { (nes_joy_B_raw[7] & nes_joy_B_raw[6]) ? 2'b00 : nes_joy_B_raw[7:6],
-	    (nes_joy_B_raw[5] & nes_joy_B_raw[4]) ? 2'b00 : nes_joy_B_raw[5:4],
-	    nes_joy_B_raw[3:0] }
-	: nes_joy_B_raw;
-wire [7:0] nes_joy_C = neutral_lr_ud
-	? { (nes_joy_C_raw[7] & nes_joy_C_raw[6]) ? 2'b00 : nes_joy_C_raw[7:6],
-	    (nes_joy_C_raw[5] & nes_joy_C_raw[4]) ? 2'b00 : nes_joy_C_raw[5:4],
-	    nes_joy_C_raw[3:0] }
-	: nes_joy_C_raw;
-wire [7:0] nes_joy_D = neutral_lr_ud
-	? { (nes_joy_D_raw[7] & nes_joy_D_raw[6]) ? 2'b00 : nes_joy_D_raw[7:6],
-	    (nes_joy_D_raw[5] & nes_joy_D_raw[4]) ? 2'b00 : nes_joy_D_raw[5:4],
-	    nes_joy_D_raw[3:0] }
-	: nes_joy_D_raw;
+// When the upstream input layer can never report both directions high at
+// once (USB HAT switch d-pads, OS-level SOCD cleaning, etc), the
+// socd_neutralize module also infers L+R intent from a direct L↔R flip
+// with no observed neutral, and releases NOP once exactly one direction
+// has been stably held alone.
+wire [7:0] nes_joy_A_f, nes_joy_B_f, nes_joy_C_f, nes_joy_D_f;
+
+socd_neutralize lr_neutralize_A (.clk(clk), .neg_raw(nes_joy_A_raw[6]), .pos_raw(nes_joy_A_raw[7]), .neg_out(nes_joy_A_f[6]), .pos_out(nes_joy_A_f[7]));
+socd_neutralize ud_neutralize_A (.clk(clk), .neg_raw(nes_joy_A_raw[4]), .pos_raw(nes_joy_A_raw[5]), .neg_out(nes_joy_A_f[4]), .pos_out(nes_joy_A_f[5]));
+socd_neutralize lr_neutralize_B (.clk(clk), .neg_raw(nes_joy_B_raw[6]), .pos_raw(nes_joy_B_raw[7]), .neg_out(nes_joy_B_f[6]), .pos_out(nes_joy_B_f[7]));
+socd_neutralize ud_neutralize_B (.clk(clk), .neg_raw(nes_joy_B_raw[4]), .pos_raw(nes_joy_B_raw[5]), .neg_out(nes_joy_B_f[4]), .pos_out(nes_joy_B_f[5]));
+socd_neutralize lr_neutralize_C (.clk(clk), .neg_raw(nes_joy_C_raw[6]), .pos_raw(nes_joy_C_raw[7]), .neg_out(nes_joy_C_f[6]), .pos_out(nes_joy_C_f[7]));
+socd_neutralize ud_neutralize_C (.clk(clk), .neg_raw(nes_joy_C_raw[4]), .pos_raw(nes_joy_C_raw[5]), .neg_out(nes_joy_C_f[4]), .pos_out(nes_joy_C_f[5]));
+socd_neutralize lr_neutralize_D (.clk(clk), .neg_raw(nes_joy_D_raw[6]), .pos_raw(nes_joy_D_raw[7]), .neg_out(nes_joy_D_f[6]), .pos_out(nes_joy_D_f[7]));
+socd_neutralize ud_neutralize_D (.clk(clk), .neg_raw(nes_joy_D_raw[4]), .pos_raw(nes_joy_D_raw[5]), .neg_out(nes_joy_D_f[4]), .pos_out(nes_joy_D_f[5]));
+
+assign nes_joy_A_f[3:0] = nes_joy_A_raw[3:0];
+assign nes_joy_B_f[3:0] = nes_joy_B_raw[3:0];
+assign nes_joy_C_f[3:0] = nes_joy_C_raw[3:0];
+assign nes_joy_D_f[3:0] = nes_joy_D_raw[3:0];
+
+wire [7:0] nes_joy_A = neutral_lr_ud ? nes_joy_A_f : nes_joy_A_raw;
+wire [7:0] nes_joy_B = neutral_lr_ud ? nes_joy_B_f : nes_joy_B_raw;
+wire [7:0] nes_joy_C = neutral_lr_ud ? nes_joy_C_f : nes_joy_C_raw;
+wire [7:0] nes_joy_D = neutral_lr_ud ? nes_joy_D_f : nes_joy_D_raw;
 wire [23:0] joypad_bits_load_p1 = piano ? {15'h0000, uart_data[8:0]}
 	: {status[10] ? {8'h08, nes_joy_C} : 16'hFFFF, joy_swap ? nes_joy_B : nes_joy_A};
 wire [23:0] joypad_bits_load_p2 = {status[10] ? {8'h04, nes_joy_D} : 16'hFFFF, joy_swap ? nes_joy_A : nes_joy_B};
