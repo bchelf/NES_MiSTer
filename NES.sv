@@ -606,9 +606,8 @@ wire [7:0] nes_joy_D_raw = { joyD[0], joyD[1], joyD[2], joyD[3], joyD[7], joyD[6
 // L+R (bits 7:6) and U+D (bits 5:4) on each controller.
 // When the upstream input layer can never report both directions high at
 // once (USB HAT switch d-pads, OS-level SOCD cleaning, etc), the
-// socd_neutralize module also infers L+R intent from a direct L↔R flip
-// with no observed neutral, and releases NOP once exactly one direction
-// has been stably held alone.
+// socd_neutralize module can infer conflict from a longer release window
+// and a best-effort direct L/R or U/D flip fallback.
 wire [7:0] nes_joy_A_f, nes_joy_B_f, nes_joy_C_f, nes_joy_D_f;
 
 socd_neutralize lr_neutralize_A (.clk(clk), .neg_raw(nes_joy_A_raw[6]), .pos_raw(nes_joy_A_raw[7]), .neg_out(nes_joy_A_f[6]), .pos_out(nes_joy_A_f[7]));
@@ -635,6 +634,7 @@ wire [23:0] joypad_bits_load_p2 = {status[10] ? {8'h04, nes_joy_D} : 16'hFFFF, j
 
 wire [7:0] p1_effective_raw = joypad_bits_load_p1[7:0];
 wire [7:0] p2_effective_raw = joypad_bits_load_p2[7:0];
+wire [7:0] p1_probe_raw = joy_swap ? nes_joy_B_raw : nes_joy_A_raw;
 wire [7:0] p1_effective_bits;
 wire [7:0] p2_effective_bits;
 reg  [7:0] p1_frame;
@@ -1285,6 +1285,8 @@ wire [7:0] R,G,B;
 wire [7:0] R_core,G_core,B_core;
 wire       hud_active;
 wire [23:0] hud_pixel;
+logic      input_probe_active;
+logic [23:0] input_probe_pixel;
 
 wire [1:0] nes_ce_video = corepaused ? videopause_ce : nes_ce;
 
@@ -1329,9 +1331,43 @@ video video
 	.B(B_core)
 );
 
-assign R = hud_active ? hud_pixel[23:16] : R_core;
-assign G = hud_active ? hud_pixel[15:8]  : G_core;
-assign B = hud_active ? hud_pixel[7:0]   : B_core;
+always_comb begin
+	integer probe_idx;
+	integer probe_x;
+	integer probe_y;
+	logic [3:0] probe_raw_dirs;
+	logic [3:0] probe_effective_dirs;
+	logic probe_lit;
+
+	input_probe_active = 1'b0;
+	input_probe_pixel = 24'h000000;
+	probe_raw_dirs = {p1_probe_raw[4], p1_probe_raw[5], p1_probe_raw[6], p1_probe_raw[7]};
+	probe_effective_dirs = {p1_effective_raw[4], p1_effective_raw[5], p1_effective_raw[6], p1_effective_raw[7]};
+	probe_x = {1'b0, cycle};
+	probe_y = {1'b0, scanline};
+	probe_lit = 1'b0;
+
+	if (status[69]) begin
+		for (probe_idx = 0; probe_idx < 4; probe_idx = probe_idx + 1) begin
+			// Debug Dots input probe: columns are U, D, L, R.
+			if (probe_x >= 8 + (probe_idx * 8) && probe_x < 14 + (probe_idx * 8)) begin
+				if (probe_y >= 8 && probe_y < 14) begin
+					input_probe_active = 1'b1;
+					probe_lit = probe_raw_dirs[3 - probe_idx];
+					input_probe_pixel = probe_lit ? 24'h00E0FF : 24'h202020;
+				end else if (probe_y >= 16 && probe_y < 22) begin
+					input_probe_active = 1'b1;
+					probe_lit = probe_effective_dirs[3 - probe_idx];
+					input_probe_pixel = probe_lit ? 24'hFF4040 : 24'h202020;
+				end
+			end
+		end
+	end
+end
+
+assign R = input_probe_active ? input_probe_pixel[23:16] : hud_active ? hud_pixel[23:16] : R_core;
+assign G = input_probe_active ? input_probe_pixel[15:8]  : hud_active ? hud_pixel[15:8]  : G_core;
+assign B = input_probe_active ? input_probe_pixel[7:0]   : hud_active ? hud_pixel[7:0]   : B_core;
 
 video_mixer #(260, 0, 1) video_mixer
 (
