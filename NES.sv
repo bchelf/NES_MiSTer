@@ -600,41 +600,28 @@ wire [7:0] nes_joy_B_raw = { joyB[0], joyB[1], joyB[2], joyB[3], joyB[7], joyB[6
 wire [7:0] nes_joy_C_raw = { joyC[0], joyC[1], joyC[2], joyC[3], joyC[7], joyC[6], joyC[5], ~paddle_atr & joyC[4] };
 wire [7:0] nes_joy_D_raw = { joyD[0], joyD[1], joyD[2], joyD[3], joyD[7], joyD[6], joyD[5], ~paddle_atr & joyD[4] };
 
-// Combinational filter. While both opposite-direction bits are reported
-// high simultaneously, force the pair to 0; the instant either bit drops,
-// the still-held bit passes through normally. Independently applied to
-// L+R (bits 7:6) and U+D (bits 5:4) on each controller.
-// When the upstream input layer can never report both directions high at
-// once (USB HAT switch d-pads, OS-level SOCD cleaning, etc), the
-// socd_neutralize module can infer conflict from a longer release window
-// and a best-effort direct L/R or U/D flip fallback.
-wire [7:0] nes_joy_A_f, nes_joy_B_f, nes_joy_C_f, nes_joy_D_f;
+// While both opposite-direction bits are reported high simultaneously,
+// force that axis to neutral. Releasing either side immediately lets the
+// still-held side pass through.
+wire [7:0] nes_joy_A_filtered = { nes_joy_A_raw[7] & ~nes_joy_A_raw[6], nes_joy_A_raw[6] & ~nes_joy_A_raw[7],
+	nes_joy_A_raw[5] & ~nes_joy_A_raw[4], nes_joy_A_raw[4] & ~nes_joy_A_raw[5], nes_joy_A_raw[3:0] };
+wire [7:0] nes_joy_B_filtered = { nes_joy_B_raw[7] & ~nes_joy_B_raw[6], nes_joy_B_raw[6] & ~nes_joy_B_raw[7],
+	nes_joy_B_raw[5] & ~nes_joy_B_raw[4], nes_joy_B_raw[4] & ~nes_joy_B_raw[5], nes_joy_B_raw[3:0] };
+wire [7:0] nes_joy_C_filtered = { nes_joy_C_raw[7] & ~nes_joy_C_raw[6], nes_joy_C_raw[6] & ~nes_joy_C_raw[7],
+	nes_joy_C_raw[5] & ~nes_joy_C_raw[4], nes_joy_C_raw[4] & ~nes_joy_C_raw[5], nes_joy_C_raw[3:0] };
+wire [7:0] nes_joy_D_filtered = { nes_joy_D_raw[7] & ~nes_joy_D_raw[6], nes_joy_D_raw[6] & ~nes_joy_D_raw[7],
+	nes_joy_D_raw[5] & ~nes_joy_D_raw[4], nes_joy_D_raw[4] & ~nes_joy_D_raw[5], nes_joy_D_raw[3:0] };
 
-socd_neutralize lr_neutralize_A (.clk(clk), .neg_raw(nes_joy_A_raw[6]), .pos_raw(nes_joy_A_raw[7]), .neg_out(nes_joy_A_f[6]), .pos_out(nes_joy_A_f[7]));
-socd_neutralize ud_neutralize_A (.clk(clk), .neg_raw(nes_joy_A_raw[4]), .pos_raw(nes_joy_A_raw[5]), .neg_out(nes_joy_A_f[4]), .pos_out(nes_joy_A_f[5]));
-socd_neutralize lr_neutralize_B (.clk(clk), .neg_raw(nes_joy_B_raw[6]), .pos_raw(nes_joy_B_raw[7]), .neg_out(nes_joy_B_f[6]), .pos_out(nes_joy_B_f[7]));
-socd_neutralize ud_neutralize_B (.clk(clk), .neg_raw(nes_joy_B_raw[4]), .pos_raw(nes_joy_B_raw[5]), .neg_out(nes_joy_B_f[4]), .pos_out(nes_joy_B_f[5]));
-socd_neutralize lr_neutralize_C (.clk(clk), .neg_raw(nes_joy_C_raw[6]), .pos_raw(nes_joy_C_raw[7]), .neg_out(nes_joy_C_f[6]), .pos_out(nes_joy_C_f[7]));
-socd_neutralize ud_neutralize_C (.clk(clk), .neg_raw(nes_joy_C_raw[4]), .pos_raw(nes_joy_C_raw[5]), .neg_out(nes_joy_C_f[4]), .pos_out(nes_joy_C_f[5]));
-socd_neutralize lr_neutralize_D (.clk(clk), .neg_raw(nes_joy_D_raw[6]), .pos_raw(nes_joy_D_raw[7]), .neg_out(nes_joy_D_f[6]), .pos_out(nes_joy_D_f[7]));
-socd_neutralize ud_neutralize_D (.clk(clk), .neg_raw(nes_joy_D_raw[4]), .pos_raw(nes_joy_D_raw[5]), .neg_out(nes_joy_D_f[4]), .pos_out(nes_joy_D_f[5]));
-
-assign nes_joy_A_f[3:0] = nes_joy_A_raw[3:0];
-assign nes_joy_B_f[3:0] = nes_joy_B_raw[3:0];
-assign nes_joy_C_f[3:0] = nes_joy_C_raw[3:0];
-assign nes_joy_D_f[3:0] = nes_joy_D_raw[3:0];
-
-wire [7:0] nes_joy_A = neutral_lr_ud ? nes_joy_A_f : nes_joy_A_raw;
-wire [7:0] nes_joy_B = neutral_lr_ud ? nes_joy_B_f : nes_joy_B_raw;
-wire [7:0] nes_joy_C = neutral_lr_ud ? nes_joy_C_f : nes_joy_C_raw;
-wire [7:0] nes_joy_D = neutral_lr_ud ? nes_joy_D_f : nes_joy_D_raw;
+wire [7:0] nes_joy_A = neutral_lr_ud ? nes_joy_A_filtered : nes_joy_A_raw;
+wire [7:0] nes_joy_B = neutral_lr_ud ? nes_joy_B_filtered : nes_joy_B_raw;
+wire [7:0] nes_joy_C = neutral_lr_ud ? nes_joy_C_filtered : nes_joy_C_raw;
+wire [7:0] nes_joy_D = neutral_lr_ud ? nes_joy_D_filtered : nes_joy_D_raw;
 wire [23:0] joypad_bits_load_p1 = piano ? {15'h0000, uart_data[8:0]}
 	: {status[10] ? {8'h08, nes_joy_C} : 16'hFFFF, joy_swap ? nes_joy_B : nes_joy_A};
 wire [23:0] joypad_bits_load_p2 = {status[10] ? {8'h04, nes_joy_D} : 16'hFFFF, joy_swap ? nes_joy_A : nes_joy_B};
 
 wire [7:0] p1_effective_raw = joypad_bits_load_p1[7:0];
 wire [7:0] p2_effective_raw = joypad_bits_load_p2[7:0];
-wire [7:0] p1_probe_raw = joy_swap ? nes_joy_B_raw : nes_joy_A_raw;
 wire [7:0] p1_effective_bits;
 wire [7:0] p2_effective_bits;
 reg  [7:0] p1_frame;
@@ -1285,8 +1272,6 @@ wire [7:0] R,G,B;
 wire [7:0] R_core,G_core,B_core;
 wire       hud_active;
 wire [23:0] hud_pixel;
-logic      input_probe_active;
-logic [23:0] input_probe_pixel;
 
 wire [1:0] nes_ce_video = corepaused ? videopause_ce : nes_ce;
 
@@ -1331,43 +1316,9 @@ video video
 	.B(B_core)
 );
 
-always_comb begin
-	integer probe_idx;
-	integer probe_x;
-	integer probe_y;
-	logic [3:0] probe_raw_dirs;
-	logic [3:0] probe_effective_dirs;
-	logic probe_lit;
-
-	input_probe_active = 1'b0;
-	input_probe_pixel = 24'h000000;
-	probe_raw_dirs = {p1_probe_raw[4], p1_probe_raw[5], p1_probe_raw[6], p1_probe_raw[7]};
-	probe_effective_dirs = {p1_effective_raw[4], p1_effective_raw[5], p1_effective_raw[6], p1_effective_raw[7]};
-	probe_x = {1'b0, cycle};
-	probe_y = {1'b0, scanline};
-	probe_lit = 1'b0;
-
-	if (status[69]) begin
-		for (probe_idx = 0; probe_idx < 4; probe_idx = probe_idx + 1) begin
-			// Debug Dots input probe: columns are U, D, L, R.
-			if (probe_x >= 8 + (probe_idx * 8) && probe_x < 14 + (probe_idx * 8)) begin
-				if (probe_y >= 8 && probe_y < 14) begin
-					input_probe_active = 1'b1;
-					probe_lit = probe_raw_dirs[3 - probe_idx];
-					input_probe_pixel = probe_lit ? 24'h00E0FF : 24'h202020;
-				end else if (probe_y >= 16 && probe_y < 22) begin
-					input_probe_active = 1'b1;
-					probe_lit = probe_effective_dirs[3 - probe_idx];
-					input_probe_pixel = probe_lit ? 24'hFF4040 : 24'h202020;
-				end
-			end
-		end
-	end
-end
-
-assign R = input_probe_active ? input_probe_pixel[23:16] : hud_active ? hud_pixel[23:16] : R_core;
-assign G = input_probe_active ? input_probe_pixel[15:8]  : hud_active ? hud_pixel[15:8]  : G_core;
-assign B = input_probe_active ? input_probe_pixel[7:0]   : hud_active ? hud_pixel[7:0]   : B_core;
+assign R = hud_active ? hud_pixel[23:16] : R_core;
+assign G = hud_active ? hud_pixel[15:8]  : G_core;
+assign B = hud_active ? hud_pixel[7:0]   : B_core;
 
 video_mixer #(260, 0, 1) video_mixer
 (
